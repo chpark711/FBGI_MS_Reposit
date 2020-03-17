@@ -5,6 +5,7 @@
 import socket
 import threading
 import socketserver
+import struct
 
 from time import sleep
 from configparser import ConfigParser
@@ -41,12 +42,20 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
         while True:
             data = self.request.recv(BUF_SIZE)
             cur_thread = threading.current_thread()
-            log = "[%s] %s" % (cur_thread.name, data.decode())
+
+            # Unpacking binary packet
+            recv_data = struct.unpack('lHHHH512siihhi1024s', data)
+            print(recv_data)
+
+             # Command
+            recv_cmd = recv_data[5].decode().strip()
+            print(type(recv_cmd))
+
+            log = "[%s] %s" % (cur_thread.name, recv_cmd)
             print(log)
 
-            str_req_msg = data.decode().strip()
+            str_req_msg = recv_cmd
             str_response = ""
-
             str_terminal = "\r\n"
 
             # Handling Request
@@ -63,7 +72,25 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
                 str_response = "Unknown command."
 
             str_response = str_response + str_terminal
-            self.request.sendall(str_response.encode())
+            n_response_size = len(str_response)
+
+            list_resp = list(recv_data)
+            list_resp[0] = n_response_size
+            list_resp.append(str_response.encode())
+
+            tp_resp = tuple(list_resp)
+
+            print(len(tp_resp))
+
+            strFormat = 'lHHHH512siihhi1024s%is' % n_response_size
+
+            respond_data = struct.pack(strFormat,
+                                       tp_resp[0],tp_resp[1],tp_resp[2],tp_resp[3],tp_resp[4],
+                                       tp_resp[5],tp_resp[6],tp_resp[7],tp_resp[8],tp_resp[9],
+                                       tp_resp[10],tp_resp[11],tp_resp[12])
+
+            self.request.sendall(respond_data)
+            # self.request.sendall(str_response.encode())
 
 def main_():
 
