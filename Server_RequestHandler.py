@@ -16,6 +16,9 @@ from Mgr_DataService import *
 # tells the kernel to pickup a port dynamically
 BUF_SIZE = 5120
 
+HDR_FORMAT = 'lHHHH512siihhi1024s'
+
+
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     """ Nothing to add here, inherited everythin necessary from parents """
     pass
@@ -24,6 +27,8 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
 
     m_DataService_Mgr = Mgr_DataService()
     m_Mornitoring_Mgr = Mgr_Monitoring()
+
+    str_terminal = "\r\n"
 
     # def __init__(self):
     #     print("Server_RequestHandler init...")
@@ -44,53 +49,79 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
             cur_thread = threading.current_thread()
 
             # Unpacking binary packet
-            recv_data = struct.unpack('lHHHH512siihhi1024s', data)
+            recv_data = struct.unpack(HDR_FORMAT, data)
             print(recv_data)
 
              # Command
             recv_cmd = recv_data[5].decode().strip()
-            print(type(recv_cmd))
-
             log = "[%s] %s" % (cur_thread.name, recv_cmd)
             print(log)
 
-            str_req_msg = recv_cmd
-            str_response = ""
-            str_terminal = "\r\n"
+            # Command List
+            tobe_excute_cmdList = recv_cmd.split('^')
+            count_of_cmdList = len(tobe_excute_cmdList)
 
-            # Handling Request
-            if str_req_msg == "GET_DATA":
-                str_response = self.m_DataService_Mgr.Get_Data()
-            elif str_req_msg == "SET_SETTINGS":
-                str_response = self.m_Mornitoring_Mgr.Set_Settings_on_device()
+            str_response = []
+            str_response_msg = ''
+            cmd_return = 0
 
-            elif str_req_msg == "Close":
-                str_response = "Socket is closing..." + str_terminal
-                self.request.sendall(str_response.encode())
-                break
-            else:
-                str_response = "Unknown command."
+            nIndex_of_cmd = 0
+            for msg in tobe_excute_cmdList:
+                print(msg)
+                str_req_msg = msg
+                cmd_property_list = str_req_msg.split(":")
+                cmd_target = cmd_property_list[0]
+                str_response.clear()
 
-            str_response = str_response + str_terminal
-            n_response_size = len(str_response)
+                # Handling Request
+                if cmd_target[:4] == "FBGI" or cmd_target[:3] == "DTS":
+                    cmd_return = self.m_Mornitoring_Mgr.Handle_Command(str_req_msg, str_response)
+                elif str_req_msg[:12] == "DB":
+                    cmd_return = self.m_Mornitoring_Mgr.Set_Settings_on_device(str_response)
+                elif str_req_msg[:5] == "Close":
+                    str_response[0] = "Socket is closing..." + self.str_terminal
+                    cmd_return = 0
+                else:
+                    str_response[0] = "Unknown command."
+                    cmd_return = -1
 
+                nIndex_of_cmd = nIndex_of_cmd + 1;
+                if nIndex_of_cmd != count_of_cmdList:
+                    str_response_msg = str_response_msg + str_response[0] + '^'
+                else:
+                    str_response_msg = str_response_msg + str_response[0]
+
+                if cmd_return == -1:
+                    break
+
+            # 응답 메세지
+            str_response_msg = str_response_msg + self.str_terminal
+            n_response_size = len(str_response_msg)
+
+            # 헤더를 수정하기 위한 리스트 변환
             list_resp = list(recv_data)
+
+            # 헤더에 결과값 갱신
             list_resp[0] = n_response_size
-            list_resp.append(str_response.encode())
+            list_resp[8] = cmd_return
+            list_resp.append(str_response_msg.encode())
 
-            tp_resp = tuple(list_resp)
-
-            print(len(tp_resp))
-
-            strFormat = 'lHHHH512siihhi1024s%is' % n_response_size
-
+            # Make packet
+            strFormat = HDR_FORMAT + ('%is' % n_response_size)
             respond_data = struct.pack(strFormat,
-                                       tp_resp[0],tp_resp[1],tp_resp[2],tp_resp[3],tp_resp[4],
-                                       tp_resp[5],tp_resp[6],tp_resp[7],tp_resp[8],tp_resp[9],
-                                       tp_resp[10],tp_resp[11],tp_resp[12])
+                                       list_resp[0],list_resp[1],list_resp[2],list_resp[3],list_resp[4],
+                                       list_resp[5],list_resp[6],list_resp[7],list_resp[8],list_resp[9],
+                                       list_resp[10],list_resp[11],list_resp[12])
 
+            # 전송하기.
             self.request.sendall(respond_data)
-            # self.request.sendall(str_response.encode())
+
+            # Close 명령어 이면 소켓(클라이언트) 닫기.
+            if str_req_msg[:5] == "Close":
+                print("Socket is closed!!!")
+                break
+
+   # def handle_command(self, data):
 
 def main_():
 
