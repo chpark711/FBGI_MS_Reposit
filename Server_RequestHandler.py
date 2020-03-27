@@ -42,6 +42,8 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
     def init_Server():
         print("init - Server")
 
+
+
     """ An example of threaded TCP request handler """
     def handle(self):
         while True:
@@ -50,12 +52,17 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
 
             # Unpacking binary packet
             recv_data = struct.unpack(HDR_FORMAT, data)
-            print(recv_data)
+            # print(recv_data)
 
              # Command
             recv_cmd = recv_data[5].decode().strip()
+            # print(type(recv_cmd))
+            text_end = recv_cmd.find('\r\n')
+            if text_end >= 0:
+                recv_cmd = recv_cmd[:text_end]
+
             log = "[%s] %s" % (cur_thread.name, recv_cmd)
-            print(log)
+            # print(log)
 
             # Command List
             tobe_excute_cmdList = recv_cmd.split('^')
@@ -63,11 +70,13 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
 
             str_response = []
             str_response_msg = ''
+            str_response_bin = b''
+
             cmd_return = 0
 
             nIndex_of_cmd = 0
             for msg in tobe_excute_cmdList:
-                print(msg)
+                # print(msg)
                 str_req_msg = msg
                 cmd_property_list = str_req_msg.split(":")
                 cmd_target = cmd_property_list[0]
@@ -86,17 +95,35 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
                     cmd_return = -1
 
                 nIndex_of_cmd = nIndex_of_cmd + 1;
-                if nIndex_of_cmd != count_of_cmdList:
-                    str_response_msg = str_response_msg + str_response[0] + '^'
+
+                isResponseTye_binary = False
+
+
+                response_type = str(type(str_response[0]))
+                # print(response_type)
+                if response_type == "<class 'bytes'>":
+                    isResponseTye_binary= True
+
+
+                if isResponseTye_binary == True:
+                    str_response_bin = str_response[0]
                 else:
-                    str_response_msg = str_response_msg + str_response[0]
+                    if nIndex_of_cmd != count_of_cmdList:
+                        str_response_msg = str_response_msg + str_response[0] + '^'
+                    else:
+                        str_response_msg = str_response_msg + str_response[0]
+
 
                 if cmd_return == -1:
                     break
+                # sleep(0.050)
 
             # 응답 메세지
-            str_response_msg = str_response_msg + self.str_terminal
-            n_response_size = len(str_response_msg)
+            if isResponseTye_binary == True:
+                n_response_size = len(str_response_bin)
+            else:
+                str_response_msg = str_response_msg + self.str_terminal
+                n_response_size = len(str_response_msg)
 
             # 헤더를 수정하기 위한 리스트 변환
             list_resp = list(recv_data)
@@ -104,7 +131,10 @@ class Server_RequestHandler(socketserver.BaseRequestHandler):
             # 헤더에 결과값 갱신
             list_resp[0] = n_response_size
             list_resp[8] = cmd_return
-            list_resp.append(str_response_msg.encode())
+            if isResponseTye_binary == True:
+                list_resp.append(str_response_bin)
+            else:
+                list_resp.append(str_response_msg.encode())
 
             # Make packet
             strFormat = HDR_FORMAT + ('%is' % n_response_size)
